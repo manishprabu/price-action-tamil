@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to host a static website in an S3 bucket served via CloudFront with a custom domain.'
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: 'The name for the S3 bucket. Must be globally unique.'
+    Default: 'price-action-tamil-site'
+  DomainName:
+    Type: String
+    Description: 'The custom domain name for the website'
+    Default: 'price-action-tamil.com'
+  HostedZoneId:
+    Type: String
+    Description: 'The Route53 Hosted Zone ID'
+    Default: 'Z03717392X1FRLNERFR2F'
+  CertificateArn:
+    Type: String
+    Description: 'The ARN of the ACM Certificate (must be in us-east-1)'
+
+Resources:
+  # S3 Bucket Configuration
+  WebsiteBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # CloudFront Origin Access Identity (OAI)
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub 'Access identity for ${DomainName}'
+
+  # S3 Bucket Policy
+  WebsiteBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GrantCloudFrontAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentity}'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref WebsiteBucket
+                - '/*'
+
+  # CloudFront Distribution
+  WebsiteDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        Enabled: true
+        DefaultRootObject: index.html
+        Aliases:
+          - !Ref DomainName
+          - !Sub 'www.${DomainName}'
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+  # Route53 Record (Apex)
+  WebsiteDNS:
+    Type: 'AWS::Route53::RecordSet'
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront's fixed hosted zone ID
+        DNSName: !GetAtt WebsiteDistribution.DomainName
+
+  # Route53 Record (WWW)
+  WebsiteDNSwww:
+    Type: 'AWS::Route53::RecordSet'
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub 'www.${DomainName}'
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront's fixed hosted zone ID
+        DNSName: !GetAtt WebsiteDistribution.DomainName
+
+Outputs:
+  WebsiteURL:
+    Value: !Sub 'https://${DomainName}'
+    Description: 'URL for website hosted on S3 via CloudFront'
+  S3BucketName:
+    Value: !Ref WebsiteBucket
+    Description: 'Name of S3 bucket to hold website content'
+  CloudFrontDistributionId:
+    Value: !Ref WebsiteDistribution
+    Description: 'ID of the CloudFront Distribution'

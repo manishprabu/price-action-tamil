@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create an ACM Certificate in us-east-1 for CloudFront usage.'
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: 'The custom domain name for the certificate'
+    Default: 'price-action-tamil.com'
+  HostedZoneId:
+    Type: String
+    Description: 'The Route53 Hosted Zone ID'
+    Default: 'Z03717392X1FRLNERFR2F'
+
+Resources:
+  # SSL Certificate
+  SSLCertificate:
+    Type: 'AWS::CertificateManager::Certificate'
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      SubjectAlternativeNames:
+        - !Sub 'www.${DomainName}'
+      ValidationMethod: DNS
+
+Outputs:
+  CertificateArn:
+    Value: !Ref SSLCertificate
+    Description: 'The ARN of the verify ACM Certificate'
