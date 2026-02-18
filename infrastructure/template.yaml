@@ -91,6 +91,8 @@ Resources:
           SslSupportMethod: sni-only
           MinimumProtocolVersion: TLSv1.2_2021
 
+
+
   # Route53 Record (Apex)
   WebsiteDNS:
     Type: 'AWS::Route53::RecordSet'
@@ -99,19 +101,184 @@ Resources:
       Name: !Ref DomainName
       Type: A
       AliasTarget:
-        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront's fixed hosted zone ID
+        HostedZoneId: Z2FDTNDATAQYW2
         DNSName: !GetAtt WebsiteDistribution.DomainName
 
-  # Route53 Record (WWW)
-  WebsiteDNSwww:
+  # WWW Record
+  WebsiteDNSWWW:
     Type: 'AWS::Route53::RecordSet'
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Sub 'www.${DomainName}'
       Type: A
       AliasTarget:
-        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront's fixed hosted zone ID
+        HostedZoneId: Z2FDTNDATAQYW2
         DNSName: !GetAtt WebsiteDistribution.DomainName
+
+  # Proxy Lambda Function
+  ProxyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const https = require('https');
+          const url = require('url');
+
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event, null, 2));
+              
+              const headers = {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Headers": "Content-Type",
+                  "Access-Control-Allow-Methods": "GET, OPTIONS"
+              };
+
+              // Handle OPTIONS preflight
+              const method = event.requestContext?.http?.method || event.httpMethod;
+              if (method === 'OPTIONS') {
+                  return {
+                      statusCode: 200,
+                      headers: headers,
+                      body: JSON.stringify({ message: "OPTIONS OK" })
+                  };
+              }
+
+              try {
+                  // Extract query parameters (works for both API Gateway v2 and Function URL)
+                  const queryParams = event.queryStringParameters || {};
+                  const targetUrl = queryParams.url;
+
+                  if (!targetUrl) {
+                      console.error('Missing url parameter. Query params:', JSON.stringify(queryParams));
+                      return {
+                          statusCode: 400,
+                          headers: headers,
+                          body: JSON.stringify({ error: "Missing 'url' query parameter" })
+                      };
+                  }
+
+                  console.log(`Proxying request to: ${targetUrl}`);
+
+                  const parsedUrl = url.parse(targetUrl);
+                  const options = {
+                      hostname: parsedUrl.hostname,
+                      port: parsedUrl.port || 443,
+                      path: parsedUrl.path,
+                      method: 'GET',
+                      headers: {
+                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                          'Accept': 'application/json, text/plain, */*',
+                          'Accept-Language': 'en-US,en;q=0.9',
+                          'Referer': 'https://intradayscreener.com/'
+                      }
+                  };
+
+                  return new Promise((resolve, reject) => {
+                      const req = https.request(options, (res) => {
+                          let data = '';
+                          res.on('data', (chunk) => {
+                              data += chunk;
+                          });
+                          res.on('end', () => {
+                              console.log(`Response status: ${res.statusCode}`);
+                              resolve({
+                                  statusCode: res.statusCode,
+                                  headers: headers,
+                                  body: data
+                              });
+                          });
+                      });
+
+                      req.on('error', (e) => {
+                          console.error(`Error requesting ${targetUrl}: ${e.message}`);
+                          resolve({
+                              statusCode: 500,
+                              headers: headers,
+                              body: JSON.stringify({ error: `Internal Server Error: ${e.message}` })
+                          });
+                      });
+
+                      req.end();
+                  });
+
+              } catch (error) {
+                  console.error("Handler error:", error);
+                  return {
+                      statusCode: 500,
+                      headers: headers,
+                      body: JSON.stringify({ error: "Internal Server Error", details: error.message })
+                  };
+              }
+          };
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 10
+      Role: !GetAtt ProxyFunctionRole.Arn
+
+  # Lambda Execution Role
+  ProxyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # API Gateway HTTP API
+  ProxyApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: price-action-proxy-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - 'https://price-action-tamil.com'
+          - 'https://www.price-action-tamil.com'
+        AllowMethods:
+          - GET
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+        MaxAge: 86400
+
+  # API Gateway Integration
+  ProxyIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ProxyApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ProxyFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Gateway Route
+  ProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'GET /proxy'
+      Target: !Sub 'integrations/${ProxyIntegration}'
+
+  # API Gateway Stage
+  ProxyStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ProxyApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  # Lambda Permission for API Gateway
+  ProxyFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProxyFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/*'
 
 Outputs:
   WebsiteURL:
@@ -123,3 +290,6 @@ Outputs:
   CloudFrontDistributionId:
     Value: !Ref WebsiteDistribution
     Description: 'ID of the CloudFront Distribution'
+  ApiUrl:
+    Value: !Sub 'https://${ProxyApi}.execute-api.${AWS::Region}.amazonaws.com/proxy'
+    Description: 'URL of the Proxy API Gateway'

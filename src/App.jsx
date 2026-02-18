@@ -10,6 +10,7 @@ import Login from './pages/Login'
 import PurchasedCourses from './pages/PurchasedCourses'
 import AdminDashboard from './pages/AdminDashboard'
 import MarketOverview from './pages/MarketOverview'
+import StockSelection from './pages/StockSelection'
 import { AuthProvider } from './context/AuthContext'
 import './index.css'
 
@@ -25,6 +26,7 @@ function App() {
               <Route path="/about" element={<About />} />
               <Route path="/shop" element={<Shop />} />
               <Route path="/market" element={<MarketOverview />} />
+              <Route path="/stock-selection" element={<StockSelection />} />
               <Route path="/community" element={<Community />} />
               <Route path="/login" element={<Login />} />
               <Route path="/my-courses" element={<PurchasedCourses />} />
