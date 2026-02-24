@@ -58,20 +58,29 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-# 3. Get API URL
-$ApiUrl = aws cloudformation describe-stacks --stack-name $StackName --region $Region --profile $Profile --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text
-
+# 3. Get the Outputs from Stack and write to .env.production
 Write-Host "`n--- Backend Deployment Successful! ---" -ForegroundColor Green
-if ($ApiUrl -ne "None") {
+$Outputs = aws cloudformation describe-stacks --stack-name $StackName --region $Region --profile $Profile --query "Stacks[0].Outputs" --output json | ConvertFrom-Json
+
+$ApiUrl = ($Outputs | Where-Object { $_.OutputKey -eq "ApiUrl" }).OutputValue
+$UserPoolId = ($Outputs | Where-Object { $_.OutputKey -eq "UserPoolId" }).OutputValue
+$UserPoolClientId = ($Outputs | Where-Object { $_.OutputKey -eq "UserPoolClientId" }).OutputValue
+
+if ([string]::IsNullOrEmpty($ApiUrl) -or $ApiUrl -eq "None") {
+    Write-Host "Warning: Could not retrieve API URL from stack outputs." -ForegroundColor Yellow
+}
+else {
     Write-Host "Proxy API URL: $ApiUrl" -ForegroundColor Cyan
+    Write-Host "User Pool ID: $UserPoolId" -ForegroundColor Cyan
+    Write-Host "User Pool Client ID: $UserPoolClientId" -ForegroundColor Cyan
     
-    # Optional: Write to a config file for frontend to pick up? 
-    # For now, just outputting it. User might need to paste it into .env if we don't automate it.
-    # Let's check if we can automate updating.env.production
-    
-    $EnvContent = "VITE_API_URL=$ApiUrl"
-    Set-Content -Path ".env.production" -Value $EnvContent
-    Write-Host "Updated .env.production with VITE_API_URL" -ForegroundColor Green
+    $EnvContent = @(
+        "VITE_API_URL=$ApiUrl",
+        "VITE_COGNITO_USER_POOL_ID=$UserPoolId",
+        "VITE_COGNITO_CLIENT_ID=$UserPoolClientId"
+    )
+    $EnvContent | Set-Content -Path ".env.production"
+    Write-Host "Updated .env.production with API URL and Cognito IDs" -ForegroundColor Green
 }
 else {
     Write-Host "Warning: ApiUrl output not found." -ForegroundColor Yellow

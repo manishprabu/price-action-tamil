@@ -2,54 +2,52 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const STATIC_COURSES = [
-    {
-        id: 1,
-        title: "Price Action Mastery",
-        progress: 45,
-        thumbnail: "https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=1000",
-        lastWatched: "Module 3: Candlestick Patterns"
-    },
-    {
-        id: 2,
-        title: "Option Buying Strategy",
-        progress: 10,
-        thumbnail: "https://images.unsplash.com/photo-1642543492481-44e81e3914a7?auto=format&fit=crop&q=80&w=1000",
-        lastWatched: "Introduction to Greeks"
-    },
-    {
-        id: 3,
-        title: "Swing Trading Secrets",
-        progress: 0,
-        thumbnail: "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&q=80&w=1000",
-        lastWatched: "Not Started"
-    }
-];
+const DEFAULT_THUMBNAIL = "https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=1000";
 
 function PurchasedCourses() {
     const { user } = useAuth();
     const [courses, setCourses] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
-        // Load assigned courses from localStorage
-        const assignedCourses = JSON.parse(localStorage.getItem('assignedCourses') || '[]');
-
-        // Filter for current user (if user is logged in)
-        const userAssignments = user ? assignedCourses.filter(a => a.username === user.username) : [];
-
-        // Map assignments to course object structure
-        const dynamicCourses = userAssignments.map((assignment, index) => ({
-            id: `assigned-${index}`,
-            title: assignment.courseTitle || 'Assigned Course',
-            progress: 0,
-            thumbnail: "https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=1000",
-            lastWatched: "Not Started",
-            expiryDate: assignment.expiryDate
-        }));
-
-        // Combine static demo courses with dynamically assigned ones
-        setCourses([...STATIC_COURSES, ...dynamicCourses]);
+        if (user && user.email) {
+            fetchCourses();
+        }
     }, [user]);
+
+    const fetchCourses = async () => {
+        try {
+            setLoading(true);
+            const apiUrl = import.meta.env.VITE_API_URL?.replace(/\/proxy$/, '') || '';
+            const apiKey = import.meta.env.VITE_API_KEY;
+
+            const response = await fetch(`${apiUrl}/student/courses?email=${encodeURIComponent(user.email)}`, {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`
+                }
+            });
+
+            if (!response.ok) throw new Error('Failed to fetch courses');
+            const data = await response.json();
+            setCourses(data);
+        } catch (err) {
+            console.error('Error fetching courses:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="container" style={{ padding: '120px 1rem', textAlign: 'center' }}>
+                <div className="glass-card" style={{ padding: '3rem' }}>
+                    <h2 className="premium-gradient-text">Loading your courses...</h2>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="container" style={{ padding: '120px 1rem 4rem' }}>
@@ -65,28 +63,32 @@ function PurchasedCourses() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '2rem' }}>
                 {courses.map(course => (
-                    <div key={course.id} className="glass-card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div key={course.courseId} className="glass-card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ position: 'relative', height: '180px' }}>
                             <img
-                                src={course.thumbnail}
-                                alt={course.title}
+                                src={course.thumbnail || DEFAULT_THUMBNAIL}
+                                alt={course.name}
                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
-                            <div style={{
+                            <Link to={`/course-viewer/${course.courseId}`} style={{
                                 position: 'absolute',
                                 bottom: '10px',
                                 right: '10px',
-                                background: 'rgba(0,0,0,0.8)',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                fontSize: '0.8rem',
+                                background: 'var(--accent-primary)',
+                                color: 'white',
+                                padding: '8px 16px',
+                                borderRadius: '50px',
+                                fontSize: '0.85rem',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '5px'
+                                gap: '8px',
+                                textDecoration: 'none',
+                                fontWeight: '600',
+                                boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
                             }}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                                Play
-                            </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="white" stroke="none"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                                Watch Now
+                            </Link>
                             {course.expiryDate && (
                                 <div style={{
                                     position: 'absolute',
@@ -105,23 +107,17 @@ function PurchasedCourses() {
                         </div>
 
                         <div style={{ padding: '1.5rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>{course.title}</h3>
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                                {course.progress > 0 ? `Last watched: ${course.lastWatched}` : 'Start your journey'}
+                            <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>{course.name}</h3>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                                {course.recordings?.length || 0} Lessons • Access until {course.expiryDate}
                             </p>
 
                             <div style={{ marginTop: 'auto' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '5px', color: 'var(--text-secondary)' }}>
-                                    <span>Progress</span>
-                                    <span>{course.progress}%</span>
-                                </div>
-                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${course.progress}%`, height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }}></div>
-                                </div>
-
-                                <button className="premium-btn" style={{ width: '100%', marginTop: '1.5rem', padding: '10px', fontSize: '0.95rem' }}>
-                                    {course.progress > 0 ? 'Continue Learning' : 'Start Course'}
-                                </button>
+                                <Link to={`/course-viewer/${course.courseId}`}>
+                                    <button className="premium-btn" style={{ width: '100%', padding: '10px', fontSize: '0.95rem' }}>
+                                        Open Course
+                                    </button>
+                                </Link>
                             </div>
                         </div>
                     </div>

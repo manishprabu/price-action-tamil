@@ -8,18 +8,29 @@ $Profile = "pat"
 
 Write-Host "--- Starting Frontend Update ---" -ForegroundColor Cyan
 
-# 1. Get the API URL from Stack Outputs and write to .env.production
-Write-Host "1. Retrieving API URL from stack outputs..." -ForegroundColor Yellow
-$ApiUrl = aws cloudformation describe-stacks --stack-name $StackName --region $Region --profile $Profile --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text
+# 1. Get the Outputs from Stack and write to .env.production
+Write-Host "1. Retrieving stack outputs..." -ForegroundColor Yellow
+$Outputs = aws cloudformation describe-stacks --stack-name $StackName --region $Region --profile $Profile --query "Stacks[0].Outputs" --output json | ConvertFrom-Json
+
+$ApiUrl = ($Outputs | Where-Object { $_.OutputKey -eq "ApiUrl" }).OutputValue
+$UserPoolId = ($Outputs | Where-Object { $_.OutputKey -eq "UserPoolId" }).OutputValue
+$UserPoolClientId = ($Outputs | Where-Object { $_.OutputKey -eq "UserPoolClientId" }).OutputValue
 
 if ([string]::IsNullOrEmpty($ApiUrl) -or $ApiUrl -eq "None") {
     Write-Host "Warning: Could not retrieve API URL from stack outputs. Proceeding without it." -ForegroundColor Yellow
 }
 else {
     Write-Host "API URL: $ApiUrl" -ForegroundColor Cyan
-    $EnvContent = "VITE_API_URL=$ApiUrl"
-    Set-Content -Path ".env.production" -Value $EnvContent
-    Write-Host "Updated .env.production with VITE_API_URL" -ForegroundColor Green
+    Write-Host "User Pool ID: $UserPoolId" -ForegroundColor Cyan
+    Write-Host "User Pool Client ID: $UserPoolClientId" -ForegroundColor Cyan
+    
+    $EnvContent = @(
+        "VITE_API_URL=$ApiUrl",
+        "VITE_COGNITO_USER_POOL_ID=$UserPoolId",
+        "VITE_COGNITO_CLIENT_ID=$UserPoolClientId"
+    )
+    $EnvContent | Set-Content -Path ".env.production"
+    Write-Host "Updated .env.production with API URL and Cognito IDs" -ForegroundColor Green
 }
 
 # 2. Build the React project

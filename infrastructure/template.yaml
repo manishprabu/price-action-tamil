@@ -241,6 +241,9 @@ Resources:
           - 'https://www.price-action-tamil.com'
         AllowMethods:
           - GET
+          - POST
+          - PUT
+          - DELETE
           - OPTIONS
         AllowHeaders:
           - '*'
@@ -434,6 +437,740 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/*'
 
+  # Users DynamoDB Table
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pctrader-users
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # Courses DynamoDB Table
+  CoursesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pctrader-courses
+      AttributeDefinitions:
+        - AttributeName: courseId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: courseId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # Course Content S3 Bucket
+  CourseContentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'pctrader-courses-${AWS::AccountId}-${AWS::Region}'
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: 
+              - 'https://price-action-tamil.com'
+              - 'https://www.price-action-tamil.com'
+              - 'http://localhost:5173'
+            MaxAge: 3000
+
+  # Admin User Creation Lambda
+  AdminUserFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const { CognitoIdentityProviderClient, AdminCreateUserCommand, AdminDeleteUserCommand } = require("@aws-sdk/client-cognito-identity-provider");
+          const { DynamoDBClient, PutItemCommand, ScanCommand, UpdateItemCommand, GetItemCommand, DeleteItemCommand } = require("@aws-sdk/client-dynamodb");
+          const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+          const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+          
+          const cognitoClient = new CognitoIdentityProviderClient({});
+          const dbClient = new DynamoDBClient({});
+          const s3Client = new S3Client({});
+
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event, null, 2));
+              
+              const headers = {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Headers": "Content-Type,Authorization",
+                  "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+              };
+
+              const method = event.requestContext?.http?.method || event.httpMethod;
+              const routeKey = event.requestContext?.routeKey || `${method} ${event.rawPath || event.path}`;
+
+              if (method === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+
+              try {
+                  // LIST/SEARCH USERS
+                  if (routeKey === 'GET /admin/users') {
+                      const result = await dbClient.send(new ScanCommand({ TableName: process.env.USERS_TABLE }));
+                      const users = result.Items?.map(item => ({
+                          email: item.email?.S,
+                          phone: item.phone?.S,
+                          role: item.role?.S,
+                          status: item.status?.S,
+                          createdAt: item.createdAt?.S,
+                          courses: item.courses?.L?.map(c => ({
+                              courseId: c.M?.courseId?.S,
+                              courseTitle: c.M?.courseTitle?.S,
+                              expiryDate: c.M?.expiryDate?.S
+                          })) || []
+                      })) || [];
+                      return { statusCode: 200, headers, body: JSON.stringify(users) };
+                  }
+
+                  // CREATE USER
+                  if (routeKey === 'POST /admin/create-user') {
+                      const body = JSON.parse(event.body || '{}');
+                      const { email, phone } = body;
+
+                      if (!email) {
+                          return { statusCode: 400, headers, body: JSON.stringify({ error: "Email is required" }) };
+                      }
+
+                      const userAttributes = [
+                          { Name: "email", Value: email },
+                          { Name: "email_verified", Value: "true" },
+                          { Name: "custom:role", Value: "Student" }
+                      ];
+
+                      let formattedPhone = "";
+                      if (phone && phone.trim()) {
+                          formattedPhone = phone.trim().replace(/[\s-]/g, '');
+                          if (!formattedPhone.startsWith('+')) {
+                              if (formattedPhone.length === 10 && /^\d+$/.test(formattedPhone)) {
+                                  formattedPhone = '+91' + formattedPhone;
+                              } else if (/^\d+$/.test(formattedPhone)) {
+                                  formattedPhone = '+' + formattedPhone;
+                              }
+                          }
+                          userAttributes.push({ Name: "phone_number", Value: formattedPhone });
+                      }
+
+                      // 1. Create user in Cognito
+                      await cognitoClient.send(new AdminCreateUserCommand({
+                          UserPoolId: process.env.USER_POOL_ID,
+                          Username: email,
+                          UserAttributes: userAttributes,
+                          DesiredDeliveryMediums: ["EMAIL"]
+                      }));
+
+                      // 2. Sync to DynamoDB
+                      await dbClient.send(new PutItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Item: {
+                              email: { S: email },
+                              phone: { S: formattedPhone },
+                              role: { S: "Student" },
+                              createdAt: { S: new Date().toISOString() },
+                              courses: { L: [] },
+                              status: { S: "Active" }
+                          }
+                      }));
+
+                      return { statusCode: 200, headers, body: JSON.stringify({ message: "User created and synced successfully" }) };
+                  }
+
+                  // ASSIGN COURSE
+                  if (routeKey === 'POST /admin/assign-course') {
+                      const body = JSON.parse(event.body || '{}');
+                      const { email, courseId } = body;
+
+                      if (!email || !courseId) {
+                          return { statusCode: 400, headers, body: JSON.stringify({ error: "Email and courseId are required" }) };
+                      }
+
+                      // 1. Get Course details for validity
+                      const courseResult = await dbClient.send(new GetItemCommand({
+                          TableName: process.env.COURSES_TABLE,
+                          Key: { courseId: { S: courseId } }
+                      }));
+
+                      if (!courseResult.Item) {
+                          return { statusCode: 404, headers, body: JSON.stringify({ error: "Course not found" }) };
+                      }
+
+                      const courseName = courseResult.Item.name?.S;
+                      const validity = courseResult.Item.validity?.S || "3 months";
+
+                      // 2. Calculate Expiry
+                      const expiry = new Date();
+                      const valMatch = validity.match(/(\d+)\s*(month|year)/);
+                      if (valMatch) {
+                          const num = parseInt(valMatch[1]);
+                          const unit = valMatch[2];
+                          if (unit === 'month') expiry.setMonth(expiry.getMonth() + num);
+                          if (unit === 'year') expiry.setFullYear(expiry.getFullYear() + num);
+                      } else {
+                          expiry.setMonth(expiry.getMonth() + 3); // Default 3 months
+                      }
+                      const expiryDate = expiry.toISOString().split('T')[0];
+
+                      // 3. Update User with course
+                      await dbClient.send(new UpdateItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Key: { email: { S: email } },
+                          UpdateExpression: "SET courses = list_append(if_not_exists(courses, :empty_list), :new_course)",
+                          ExpressionAttributeValues: {
+                              ":new_course": { L: [{ M: {
+                                  courseId: { S: courseId },
+                                  courseTitle: { S: courseName },
+                                  expiryDate: { S: expiryDate }
+                              }}]},
+                              ":empty_list": { L: [] }
+                          }
+                      }));
+
+                      return { statusCode: 200, headers, body: JSON.stringify({ message: "Course assigned successfully", expiryDate }) };
+                  }
+
+                  // GET STUDENT COURSES
+                  if (routeKey === 'GET /student/courses') {
+                      const email = event.queryStringParameters?.email;
+                      if (!email) {
+                          return { statusCode: 400, headers, body: JSON.stringify({ error: "Email is required" }) };
+                      }
+
+                      // 1. Get User
+                      const userResult = await dbClient.send(new GetItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Key: { email: { S: email } }
+                      }));
+
+                      if (!userResult.Item) {
+                          return { statusCode: 404, headers, body: JSON.stringify({ error: "User not found" }) };
+                      }
+
+                      const userCourses = userResult.Item.courses?.L || [];
+                      const detailedCourses = [];
+
+                      // 2. Fetch full course details for each assignment
+                      for (const c of userCourses) {
+                          const cId = c.M?.courseId?.S;
+                          const exp = c.M?.expiryDate?.S;
+
+                          const courseDef = await dbClient.send(new GetItemCommand({
+                              TableName: process.env.COURSES_TABLE,
+                              Key: { courseId: { S: cId } }
+                          }));
+
+                          if (courseDef.Item) {
+                              const recordings = [];
+                              const recsList = courseDef.Item.recordings?.L || [];
+
+                              // Generate presigned URLs for each recording
+                              for (const rec of recsList) {
+                                  const title = rec.M?.title?.S;
+                                  const s3Key = rec.M?.s3Key?.S;
+                                  
+                                  const command = new GetObjectCommand({
+                                      Bucket: process.env.COURSE_BUCKET,
+                                      Key: s3Key
+                                  });
+                                  const url = await getSignedUrl(s3Client, command, { expiresIn: 21600 }); // 6 hours
+
+                                  recordings.push({ title, url });
+                              }
+
+                              detailedCourses.push({
+                                  courseId: cId,
+                                  name: courseDef.Item.name?.S,
+                                  expiryDate: exp,
+                                  recordings: recordings
+                              });
+                          }
+                      }
+
+                      return { statusCode: 200, headers, body: JSON.stringify(detailedCourses) };
+                  }
+
+                  // REMOVE COURSE
+                  if (routeKey === 'POST /admin/remove-course') {
+                      const body = JSON.parse(event.body || '{}');
+                      const { email, courseId } = body;
+
+                      if (!email || !courseId) {
+                          return { statusCode: 400, headers, body: JSON.stringify({ error: "Email and courseId are required" }) };
+                      }
+
+                      // 1. Get User to find the index or filter
+                      const userResult = await dbClient.send(new GetItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Key: { email: { S: email } }
+                      }));
+
+                      if (!userResult.Item) {
+                          return { statusCode: 404, headers, body: JSON.stringify({ error: "User not found" }) };
+                      }
+
+                      const currentCourses = userResult.Item.courses?.L || [];
+                      const updatedCourses = currentCourses.filter(c => c.M?.courseId?.S !== courseId);
+
+                      // 2. Update User
+                      await dbClient.send(new UpdateItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Key: { email: { S: email } },
+                          UpdateExpression: "SET courses = :updated_courses",
+                          ExpressionAttributeValues: {
+                              ":updated_courses": { L: updatedCourses }
+                          }
+                      }));
+
+                      return { statusCode: 200, headers, body: JSON.stringify({ message: "Course removed successfully" }) };
+                  }
+
+                  // DELETE USER
+                  if (routeKey === 'DELETE /admin/delete-user') {
+                      const email = event.queryStringParameters?.email || JSON.parse(event.body || '{}').email;
+                      if (!email) {
+                          return { statusCode: 400, headers, body: JSON.stringify({ error: "Email is required" }) };
+                      }
+
+                      // 1. Delete from Cognito
+                      try {
+                          await cognitoClient.send(new AdminDeleteUserCommand({
+                              UserPoolId: process.env.USER_POOL_ID,
+                              Username: email
+                          }));
+                      } catch (cErr) {
+                          console.log('Cognito delete error (might already be gone):', cErr.message);
+                      }
+
+                      // 2. Delete from DynamoDB
+                      await dbClient.send(new DeleteItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Key: { email: { S: email } }
+                      }));
+
+                      return { statusCode: 200, headers, body: JSON.stringify({ message: "User deleted successfully" }) };
+                  }
+
+                  return { statusCode: 404, headers, body: JSON.stringify({ error: "Route not found" }) };
+
+              } catch (error) {
+                  console.error(error);
+                  return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
+              }
+          };
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 15
+      Role: !GetAtt AdminUserFunctionRole.Arn
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPool
+          USERS_TABLE: !Ref UsersTable
+          COURSES_TABLE: !Ref CoursesTable
+          COURSE_BUCKET: !Ref CourseContentBucket
+
+  # IAM Role for Admin User Creation
+  AdminUserFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CognitoAdminPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminCreateUser
+                  - cognito-idp:AdminAddUserToGroup
+                  - cognito-idp:AdminDeleteUser
+                Resource: !GetAtt UserPool.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                  - dynamodb:DeleteItem
+                Resource: 
+                  - !GetAtt UsersTable.Arn
+                  - !GetAtt CoursesTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${CourseContentBucket}/*'
+
+  # API Gateway Integration for Admin User Creation
+  AdminUserIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ProxyApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AdminUserFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Gateway Route for Admin User Creation
+  AdminUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'POST /admin/create-user'
+      Target: !Sub 'integrations/${AdminUserIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # GET /admin/users (Search/List)
+  UserListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'GET /admin/users'
+      Target: !Sub 'integrations/${AdminUserIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # POST /admin/assign-course
+  CourseAssignRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'POST /admin/assign-course'
+      Target: !Sub 'integrations/${AdminUserIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # GET /student/courses
+  StudentCourseRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'GET /student/courses'
+      Target: !Sub 'integrations/${AdminUserIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # POST /admin/remove-course
+  RemoveCourseRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'POST /admin/remove-course'
+      Target: !Sub 'integrations/${AdminUserIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # DELETE /admin/delete-user
+  DeleteUserRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'DELETE /admin/delete-user'
+      Target: !Sub 'integrations/${AdminUserIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # Course Management Integration
+  CourseManagementIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ProxyApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt CourseManagementFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # GET /admin/courses (List)
+  CourseListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'GET /admin/courses'
+      Target: !Sub 'integrations/${CourseManagementIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # POST /admin/courses/upload-url (Get Presigned URL)
+  CourseUploadUrlRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'POST /admin/courses/upload-url'
+      Target: !Sub 'integrations/${CourseManagementIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # POST /admin/courses (Create Meta)
+  CourseCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'POST /admin/courses'
+      Target: !Sub 'integrations/${CourseManagementIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # PUT /admin/courses/{courseId} (Update)
+  CourseUpdateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'PUT /admin/courses/{id}'
+      Target: !Sub 'integrations/${CourseManagementIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # DELETE /admin/courses/{courseId} (Delete)
+  CourseDeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'DELETE /admin/courses/{id}'
+      Target: !Sub 'integrations/${CourseManagementIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # Course Management Lambda Function
+  CourseManagementFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const { DynamoDBClient, ScanCommand, PutItemCommand, UpdateItemCommand, DeleteItemCommand, GetItemCommand } = require("@aws-sdk/client-dynamodb");
+          const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+          const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+          const crypto = require('crypto');
+
+          const dbClient = new DynamoDBClient({});
+          const s3Client = new S3Client({});
+
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event, null, 2));
+              
+              const headers = {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Headers": "Content-Type,Authorization",
+                  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS"
+              };
+
+              const method = event.requestContext?.http?.method || event.httpMethod;
+              const routeKey = event.requestContext?.routeKey || `${method} ${event.rawPath || event.path}`;
+
+              if (method === 'OPTIONS') return { statusCode: 200, headers };
+
+              try {
+                  // LIST COURSES
+                  if (routeKey === 'GET /admin/courses') {
+                      const result = await dbClient.send(new ScanCommand({ TableName: process.env.COURSES_TABLE }));
+                      const courses = result.Items?.map(item => ({
+                          courseId: item.courseId?.S,
+                          name: item.name?.S,
+                          price: item.price?.N,
+                          validity: item.validity?.S,
+                          recordings: item.recordings?.L?.map(rec => ({
+                              title: rec.M?.title?.S,
+                              s3Key: rec.M?.s3Key?.S
+                          })) || [],
+                          createdAt: item.createdAt?.S
+                      })) || [];
+                      return { statusCode: 200, headers, body: JSON.stringify(courses) };
+                  }
+
+                  // GET UPLOAD URL
+                  if (routeKey === 'POST /admin/courses/upload-url') {
+                      const body = JSON.parse(event.body || '{}');
+                      const fileName = body.fileName || `video_${Date.now()}.mp4`;
+                      const s3Key = `courses/${crypto.randomUUID()}/${fileName}`;
+                      
+                      const command = new PutObjectCommand({
+                          Bucket: process.env.COURSE_BUCKET,
+                          Key: s3Key,
+                          ContentType: body.contentType || 'video/mp4'
+                      });
+                      
+                      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+                      return { statusCode: 200, headers, body: JSON.stringify({ uploadUrl, s3Key }) };
+                  }
+
+                  // CREATE COURSE
+                  if (routeKey === 'POST /admin/courses') {
+                      const body = JSON.parse(event.body || '{}');
+                      const courseId = crypto.randomUUID();
+                      const recordings = body.recordings?.map(rec => ({
+                          M: {
+                              title: { S: rec.title },
+                              s3Key: { S: rec.s3Key }
+                          }
+                      })) || [];
+
+                      await dbClient.send(new PutItemCommand({
+                          TableName: process.env.COURSES_TABLE,
+                          Item: {
+                              courseId: { S: courseId },
+                              name: { S: body.name },
+                              price: { N: body.price.toString() },
+                              validity: { S: body.validity },
+                              recordings: { L: recordings },
+                              createdAt: { S: new Date().toISOString() }
+                          }
+                      }));
+                      return { statusCode: 201, headers, body: JSON.stringify({ message: "Course created", courseId }) };
+                  }
+
+                  // UPDATE COURSE
+                  if (routeKey.startsWith('PUT /admin/courses/')) {
+                      const id = event.pathParameters?.id;
+                      const body = JSON.parse(event.body || '{}');
+                      const recordings = body.recordings?.map(rec => ({
+                          M: {
+                              title: { S: rec.title },
+                              s3Key: { S: rec.s3Key }
+                          }
+                      })) || [];
+
+                      await dbClient.send(new UpdateItemCommand({
+                          TableName: process.env.COURSES_TABLE,
+                          Key: { courseId: { S: id } },
+                          UpdateExpression: "SET #n = :n, price = :p, validity = :v, recordings = :r",
+                          ExpressionAttributeNames: { "#n": "name" },
+                          ExpressionAttributeValues: {
+                              ":n": { S: body.name },
+                              ":p": { N: body.price.toString() },
+                              ":v": { S: body.validity },
+                              ":r": { L: recordings }
+                          }
+                      }));
+                      return { statusCode: 200, headers, body: JSON.stringify({ message: "Course updated" }) };
+                  }
+
+                  // DELETE COURSE
+                  if (routeKey.startsWith('DELETE /admin/courses/')) {
+                      const id = event.pathParameters?.id;
+                      await dbClient.send(new DeleteItemCommand({
+                          TableName: process.env.COURSES_TABLE,
+                          Key: { courseId: { S: id } }
+                      }));
+                      return { statusCode: 200, headers, body: JSON.stringify({ message: "Course deleted" }) };
+                  }
+
+                  return { statusCode: 404, headers, body: JSON.stringify({ error: "Route not found", routeKey }) };
+
+              } catch (error) {
+                  console.error(error);
+                  return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
+              }
+          };
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 30
+      Role: !GetAtt CourseManagementRole.Arn
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref CoursesTable
+          COURSE_BUCKET: !Ref CourseContentBucket
+
+  # IAM Role for Course Management
+  CourseManagementRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CourseManagementPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt CoursesTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${CourseContentBucket}/*'
+
+  # Lambda Permission for Course Management
+  CourseManagementApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CourseManagementFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/*'
+
+  # Lambda Permission for API Gateway
+  AdminUserFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AdminUserFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/*'
+
+
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: pctrader-user-pool
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+
+  # Cognito User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: pctrader-app-client
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+  # Cognito Admin Group
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admins
+      Description: Administrative users
+      UserPoolId: !Ref UserPool
 
 Outputs:
   WebsiteURL:
@@ -448,3 +1185,9 @@ Outputs:
   ApiUrl:
     Value: !Sub 'https://${ProxyApi}.execute-api.${AWS::Region}.amazonaws.com/proxy'
     Description: 'URL of the Proxy API Gateway'
+  UserPoolId:
+    Value: !Ref UserPool
+    Description: 'Cognito User Pool ID'
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+    Description: 'Cognito User Pool Client ID'

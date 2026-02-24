@@ -9,9 +9,10 @@ import Community from './pages/Community'
 import Login from './pages/Login'
 import PurchasedCourses from './pages/PurchasedCourses'
 import AdminDashboard from './pages/AdminDashboard'
+import CourseViewer from './pages/CourseViewer'
 import MarketPulse from './pages/MarketPulse'
 import { AuthProvider } from './context/AuthContext'
-import './index.css'
+import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
   return (
@@ -29,8 +30,24 @@ function App() {
               <Route path="/stock-selection" element={<MarketPulse />} />
               <Route path="/community" element={<Community />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/my-courses" element={<PurchasedCourses />} />
-              <Route path="/admin-dashboard" element={<AdminDashboard />} />
+
+              <Route path="/my-courses" element={
+                <ProtectedRoute>
+                  <PurchasedCourses />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/course-viewer/:courseId" element={
+                <ProtectedRoute>
+                  <CourseViewer />
+                </ProtectedRoute>
+              } />
+
+              <Route path="/admin-dashboard" element={
+                <ProtectedRoute requiredRole="Admin">
+                  <AdminDashboard />
+                </ProtectedRoute>
+              } />
             </Routes>
           </main>
           <Footer />
