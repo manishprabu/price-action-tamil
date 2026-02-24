@@ -27,10 +27,8 @@ function Navbar() {
 
             <div className={`nav-links ${isMenuOpen ? 'mobile-open' : ''}`}>
                 <Link to="/" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/'), textDecoration: 'none', fontWeight: '500' }}>Home</Link>
-                <Link to="/about" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/about'), textDecoration: 'none', fontWeight: '500' }}>About Us</Link>
                 <Link to="/community" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/community'), textDecoration: 'none', fontWeight: '500' }}>Join Community</Link>
-                <Link to="/market" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/market'), textDecoration: 'none', fontWeight: '500' }}>Market</Link>
-                <Link to="/stock-selection" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/stock-selection'), textDecoration: 'none', fontWeight: '500' }}>Stock Selection</Link>
+                <Link to="/market-pulse" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/market-pulse'), textDecoration: 'none', fontWeight: '500' }}>Market Pulse</Link>
                 <Link to="/shop" onClick={() => setIsMenuOpen(false)} style={{ color: isActive('/shop'), textDecoration: 'none', fontWeight: '500' }}>Our Merchandise</Link>
 
                 {user && user.role === 'Admin' && (

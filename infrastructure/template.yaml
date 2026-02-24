@@ -280,6 +280,161 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/*'
 
+  # Request Processor Lambda Function
+  RequestProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+              console.log('Received event:', JSON.stringify(event, null, 2));
+              
+              try {
+                  const body = JSON.parse(event.body || '{}');
+                  console.log('Request body:', JSON.stringify(body, null, 2));
+                  
+                  // For now, just log and return success
+                  return {
+                      statusCode: 200,
+                      headers: {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      body: JSON.stringify({
+                          success: true,
+                          message: 'Request received successfully'
+                      })
+                  };
+              } catch (error) {
+                  console.error('Error:', error);
+                  return {
+                      statusCode: 500,
+                      headers: {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      body: JSON.stringify({
+                          success: false,
+                          error: error.message
+                      })
+                  };
+              }
+          };
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 10
+      Role: !GetAtt RequestProcessorRole.Arn
+
+  # Request Processor IAM Role
+  RequestProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # API Authorizer Lambda Function
+  ApiAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+              console.log('Authorizer event:', JSON.stringify(event, null, 2));
+              
+              const token = event.headers?.authorization || event.headers?.Authorization;
+              const expectedApiKey = process.env.API_KEY;
+              
+              // Simple API key validation
+              const isAuthorized = token === `Bearer ${expectedApiKey}`;
+              
+              return {
+                  isAuthorized: isAuthorized,
+                  context: {
+                      userId: isAuthorized ? 'authenticated-user' : 'anonymous'
+                  }
+              };
+          };
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 5
+      Role: !GetAtt ApiAuthorizerRole.Arn
+      Environment:
+        Variables:
+          API_KEY: 'pat-api-key-2026-secure'
+
+  # API Authorizer IAM Role
+  ApiAuthorizerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # API Gateway Authorizer
+  ApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref ProxyApi
+      AuthorizerType: REQUEST
+      AuthorizerUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiAuthorizerFunction.Arn}/invocations'
+      AuthorizerPayloadFormatVersion: '2.0'
+      AuthorizerResultTtlInSeconds: 300
+      EnableSimpleResponses: true
+      IdentitySource:
+        - '$request.header.Authorization'
+      Name: api-key-authorizer
+
+  # Lambda Permission for Authorizer
+  AuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiAuthorizerFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/authorizers/${ApiAuthorizer}'
+
+  # Community Join Integration
+  CommunityJoinIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ProxyApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt RequestProcessorFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # Community Join Route (Protected)
+  CommunityJoinRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ProxyApi
+      RouteKey: 'POST /community/join'
+      Target: !Sub 'integrations/${CommunityJoinIntegration}'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiAuthorizer
+
+  # Lambda Permission for Community Join
+  CommunityJoinPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RequestProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/*'
+
+
 Outputs:
   WebsiteURL:
     Value: !Sub 'https://${DomainName}'
