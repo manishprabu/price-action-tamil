@@ -15,42 +15,65 @@ function NSEHeatmap({ index = "Nifty 50" }) {
             setLoading(true);
             setError(null);
             try {
-                // Mapping user-friendly names to NSE API index names
-                const apiIndexMap = {
-                    'Nifty 50': 'NIFTY 50',
-                    'Bank Nifty': 'NIFTY BANK',
-                    'Fin Nifty': 'NIFTY FINANCIAL SERVICES',
-                    'Sensex': 'SENSEX' // Sensex is BSE, might need a different base if not available on NSE
-                };
-
-                const indexName = apiIndexMap[index] || index;
-                // Official NSE India API for stocks in an index
-                const targetUrl = `https://www.nseindia.com/api/equity-stockIndices?index=${encodeURIComponent(indexName)}`;
-
+                const isSensex = index === 'Sensex';
+                let targetUrl;
                 let fetchUrl;
+
+                if (isSensex) {
+                    targetUrl = 'https://www.5paisa.com/share-market-today/indices-heatmap/bse-sensex';
+                } else {
+                    const apiIndexMap = {
+                        'Nifty 50': 'NIFTY 50',
+                        'Bank Nifty': 'NIFTY BANK',
+                        'Fin Nifty': 'NIFTY FINANCIAL SERVICES'
+                    };
+                    const indexName = apiIndexMap[index] || index;
+                    targetUrl = `https://www.nseindia.com/api/equity-stockIndices?index=${encodeURIComponent(indexName)}`;
+                }
+
                 if (import.meta.env.VITE_API_URL) {
                     fetchUrl = `${import.meta.env.VITE_API_URL}?url=${encodeURIComponent(targetUrl)}`;
                 } else {
-                    // Local fallback - ensure vite proxy handles this or use local proxy
-                    fetchUrl = `/api/nse/equity-stockIndices?index=${encodeURIComponent(indexName)}`;
+                    fetchUrl = isSensex
+                        ? `/api/5paisa/bse-sensex` // This would need local proxy config if tested locally
+                        : `/api/nse/equity-stockIndices?index=${encodeURIComponent(index)}`;
                 }
 
                 const response = await fetch(fetchUrl);
-                if (!response.ok) throw new Error('Failed to fetch heatmap data from NSE');
+                if (!response.ok) throw new Error(`Failed to fetch heatmap data for ${index}`);
 
-                const result = await response.json();
+                if (isSensex) {
+                    const html = await response.text();
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const boxes = doc.querySelectorAll('.paisa-heatmap__box');
 
-                // NSE JSON structure: { data: [ { symbol, lastPrice, pChange, ... }, ... ] }
-                if (result && Array.isArray(result.data)) {
-                    // Filter to keep only stocks (priority 0) and exclude the index itself
-                    const stocksOnly = result.data.filter(item => (item.priority === 0 || !item.priority) && item.symbol !== indexName);
-                    setData(stocksOnly.sort((a, b) => b.pChange - a.pChange));
+                    const sensexStocks = Array.from(boxes).map(box => {
+                        const symbol = box.querySelector('.paisa__companytxt')?.textContent?.trim();
+                        const lastPriceStr = box.querySelector('.paisa__valuetxt')?.textContent?.trim() || '0';
+                        const pChangeStr = box.querySelector('.paisa__pertxt')?.textContent?.trim() || '0%';
+
+                        return {
+                            symbol,
+                            lastPrice: parseFloat(lastPriceStr.replace(/,/g, '')),
+                            pChange: parseFloat(pChangeStr.replace('%', ''))
+                        };
+                    }).filter(s => s.symbol);
+
+                    setData(sensexStocks.sort((a, b) => b.pChange - a.pChange));
                 } else {
-                    setData([]);
+                    const result = await response.json();
+                    if (result && Array.isArray(result.data)) {
+                        const indexName = index === 'Nifty 50' ? 'NIFTY 50' : (index === 'Bank Nifty' ? 'NIFTY BANK' : 'NIFTY FINANCIAL SERVICES');
+                        const stocksOnly = result.data.filter(item => (item.priority === 0 || !item.priority) && item.symbol !== indexName);
+                        setData(stocksOnly.sort((a, b) => b.pChange - a.pChange));
+                    } else {
+                        setData([]);
+                    }
                 }
             } catch (err) {
                 console.error('Heatmap Error:', err);
-                setError('Unable to load live NSE data. Please check your connection.');
+                setError(`Unable to load live ${index} data. Please check your connection.`);
             } finally {
                 setLoading(false);
             }

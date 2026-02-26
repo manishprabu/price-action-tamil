@@ -160,18 +160,20 @@ Resources:
                   console.log(`Proxying request to: ${targetUrl}`);
 
                   const parsedUrl = url.parse(targetUrl);
-                  const isNSE = parsedUrl.hostname.includes('nseindia.com');
+                  const hostname = parsedUrl.hostname;
+                  const isNSE = hostname.includes('nseindia.com');
+                  const is5paisa = hostname.includes('5paisa.com');
                   
                   const options = {
-                      hostname: parsedUrl.hostname,
+                      hostname: hostname,
                       port: parsedUrl.port || 443,
                       path: parsedUrl.path,
                       method: 'GET',
                       headers: {
                           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                          'Accept': 'application/json, text/plain, */*',
+                          'Accept': 'application/json, text/plain, text/html, */*',
                           'Accept-Language': 'en-US,en;q=0.9',
-                          'Referer': isNSE ? 'https://www.nseindia.com/' : 'https://intradayscreener.com/',
+                          'Referer': isNSE ? 'https://www.nseindia.com/' : (is5paisa ? 'https://www.5paisa.com/' : 'https://intradayscreener.com/'),
                           'Connection': 'keep-alive'
                       }
                   };
