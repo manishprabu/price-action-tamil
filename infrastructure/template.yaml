@@ -160,6 +160,8 @@ Resources:
                   console.log(`Proxying request to: ${targetUrl}`);
 
                   const parsedUrl = url.parse(targetUrl);
+                  const isNSE = parsedUrl.hostname.includes('nseindia.com');
+                  
                   const options = {
                       hostname: parsedUrl.hostname,
                       port: parsedUrl.port || 443,
@@ -169,7 +171,8 @@ Resources:
                           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                           'Accept': 'application/json, text/plain, */*',
                           'Accept-Language': 'en-US,en;q=0.9',
-                          'Referer': 'https://intradayscreener.com/'
+                          'Referer': isNSE ? 'https://www.nseindia.com/' : 'https://intradayscreener.com/',
+                          'Connection': 'keep-alive'
                       }
                   };
 
@@ -612,6 +615,19 @@ Resources:
                           expiry.setMonth(expiry.getMonth() + 3); // Default 3 months
                       }
                       const expiryDate = expiry.toISOString().split('T')[0];
+                      
+                      // 2.5 Check if user already has this course
+                      const userResult = await dbClient.send(new GetItemCommand({
+                          TableName: process.env.USERS_TABLE,
+                          Key: { email: { S: email } }
+                      }));
+                      
+                      if (userResult.Item && userResult.Item.courses?.L) {
+                          const alreadyHas = userResult.Item.courses.L.some(c => c.M?.courseId?.S === courseId);
+                          if (alreadyHas) {
+                              return { statusCode: 400, headers, body: JSON.stringify({ error: "Course already assigned to this user" }) };
+                          }
+                      }
 
                       // 3. Update User with course
                       await dbClient.send(new UpdateItemCommand({

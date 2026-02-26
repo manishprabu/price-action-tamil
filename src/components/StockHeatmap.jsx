@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-function StockHeatmap() {
+function StockHeatmap({ dataSource = "NSE:NIFTY" }) {
     const container = useRef();
 
     useEffect(() => {
@@ -10,7 +10,7 @@ function StockHeatmap() {
         script.async = true;
         script.innerHTML = JSON.stringify({
             "exchanges": [],
-            "dataSource": "BSE:SENSEX",
+            "dataSource": dataSource,
             "grouping": "sector",
             "blockSize": "market_cap_basic",
             "blockColor": "change",
@@ -29,7 +29,7 @@ function StockHeatmap() {
             container.current.innerHTML = ''; // Clear previous if any
             container.current.appendChild(script);
         }
-    }, []);
+    }, [dataSource]);
 
     return (
         <div className="tradingview-widget-container" ref={container} style={{ height: "100%", width: "100%" }}>

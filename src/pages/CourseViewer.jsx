@@ -73,8 +73,8 @@ function CourseViewer() {
     }
 
     return (
-        <div style={{ paddingTop: '100px', minHeight: '100vh', background: 'var(--bg-primary)' }}>
-            <div className="container" style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem', padding: '2rem 1rem' }}>
+        <div className="course-viewer-layout" style={{ paddingTop: '100px', minHeight: '100vh', background: 'var(--bg-primary)' }}>
+            <div className="container viewer-grid" style={{ padding: '2rem 1rem' }}>
 
                 {/* Main Content: Video Player */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -110,7 +110,7 @@ function CourseViewer() {
                 </div>
 
                 {/* Sidebar: Lessons List */}
-                <div className="glass-card" style={{ padding: '1.5rem', height: 'fit-content', position: 'sticky', top: '120px' }}>
+                <div className="glass-card viewer-sidebar" style={{ padding: '1.5rem', height: 'fit-content' }}>
                     <h3 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid var(--glass-border)' }}>
                         Course Content
                     </h3>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const DEFAULT_THUMBNAIL = "https://images.unsplash.com/photo-1611974765270-ca1258634369?auto=format&fit=crop&q=80&w=1000";
+const DEFAULT_THUMBNAIL = "/course-thumbnail.jpeg";
 
 function PurchasedCourses() {
     const { user } = useAuth();
@@ -50,18 +50,18 @@ function PurchasedCourses() {
     }
 
     return (
-        <div className="container" style={{ padding: '120px 1rem 4rem' }}>
-            <header style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="container" style={{ paddingTop: '120px', paddingBottom: '4rem' }}>
+            <header style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
                 <div>
-                    <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>My <span className="premium-gradient-text">Learning</span></h1>
+                    <h1 style={{ fontSize: 'clamp(2rem, 5vw, 2.5rem)', marginBottom: '0.5rem' }}>My <span className="premium-gradient-text">Learning</span></h1>
                     <p style={{ color: 'var(--text-secondary)' }}>Continue where you left off.</p>
                 </div>
-                <div className="glass-card" style={{ padding: '10px 20px', borderRadius: '50px' }}>
+                <div className="glass-card" style={{ padding: '10px 20px', borderRadius: '50px', whiteSpace: 'nowrap' }}>
                     <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold' }}>{courses.length}</span> Active Courses
                 </div>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
                 {courses.map(course => (
                     <div key={course.courseId} className="glass-card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ position: 'relative', height: '180px' }}>

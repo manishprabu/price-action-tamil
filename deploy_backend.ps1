@@ -82,6 +82,3 @@ else {
     $EnvContent | Set-Content -Path ".env.production"
     Write-Host "Updated .env.production with API URL and Cognito IDs" -ForegroundColor Green
 }
-else {
-    Write-Host "Warning: ApiUrl output not found." -ForegroundColor Yellow
-}

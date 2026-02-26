@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import StockHeatmap from '../components/StockHeatmap';
+import NSEHeatmap from '../components/NSEHeatmap';
 
 // Reusable Component for each Stock Section
 const StockSection = ({ title, endpoint, type }) => {
@@ -30,177 +30,217 @@ const StockSection = ({ title, endpoint, type }) => {
         fetchData();
     }, [endpoint, title]);
 
-    if (loading) return <div style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>Loading {title}...</div>;
+    if (loading) return (
+        <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div className="animate-pulse" style={{ color: 'var(--text-secondary)' }}>Analyzing {title}...</div>
+        </div>
+    );
+
     if (stocks.length === 0) return null;
 
-    const displayStocks = expanded ? stocks : stocks.slice(0, 20);
-    const remainingCount = stocks.length - 20;
+    const displayStocks = expanded ? stocks : stocks.slice(0, 15);
+    const remainingCount = stocks.length - 15;
     const isPositive = type === 'positive';
-    const pillBg = isPositive ? '#e8f5e9' : '#ffebee';
-    const pillColor = isPositive ? '#2e7d32' : '#c62828';
-    const titleIcon = isPositive ? '📈' : '📉';
+    const titleIcon = isPositive ? '↑' : '↓';
 
     return (
-        <div style={{ marginBottom: '2rem' }}>
-            <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fff' }}>
-                <span style={{ color: isPositive ? '#4caf50' : '#f44336' }}>{titleIcon}</span> {title}
-            </h3>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem' }}>
-                {displayStocks.map((symbol, index) => (
-                    <div
-                        key={index}
+        <div style={{ marginBottom: '3rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h3 style={{
+                    fontSize: '1.1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    color: isPositive ? '#4caf50' : '#f44336',
+                    letterSpacing: '0.02em',
+                    fontWeight: '700'
+                }}>
+                    <span style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '6px',
+                        background: isPositive ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.9rem'
+                    }}>{titleIcon}</span>
+                    {title}
+                </h3>
+                {stocks.length > 15 && (
+                    <button
+                        onClick={() => setExpanded(!expanded)}
                         style={{
-                            padding: '8px 16px',
-                            borderRadius: '20px',
-                            background: pillBg,
-                            color: pillColor,
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--accent-primary)',
+                            fontSize: '0.85rem',
                             fontWeight: '600',
-                            fontSize: '0.9rem',
-                            cursor: 'default',
-                            transition: 'transform 0.2s',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
                         }}
-                        onMouseEnter={(e) => e.target.style.transform = 'translateY(-2px)'}
-                        onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
                     >
+                        {expanded ? 'Show Less' : `View All (${stocks.length})`}
+                    </button>
+                )}
+            </div>
+
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '0.8rem'
+            }}>
+                {displayStocks.map((symbol, index) => (
+                    <div key={index} className={`stock-badge ${isPositive ? 'positive' : 'negative'}`}>
                         {symbol}
                     </div>
                 ))}
-
-                {!expanded && remainingCount > 0 && (
-                    <button
-                        onClick={() => setExpanded(true)}
-                        style={{
-                            padding: '8px 16px', borderRadius: '20px', background: '#e0e0e0',
-                            color: '#333', fontWeight: '600', fontSize: '0.9rem',
-                            border: 'none', cursor: 'pointer'
-                        }}
-                    >
-                        +{remainingCount} more
-                    </button>
-                )}
-                {expanded && (
-                    <button
-                        onClick={() => setExpanded(false)}
-                        style={{
-                            padding: '8px 16px', borderRadius: '20px', background: '#e0e0e0',
-                            color: '#333', fontWeight: '600', fontSize: '0.9rem',
-                            border: 'none', cursor: 'pointer'
-                        }}
-                    >
-                        Show Less
-                    </button>
-                )}
             </div>
         </div>
     );
 };
 
-// Top-level section cards — premium card switcher style
-const sectionCardStyle = (active) => ({
-    flex: 1,
-    padding: '1.2rem 1.5rem',
-    borderRadius: '14px',
-    border: active ? '2px solid #facc15' : '2px solid transparent',
-    background: active
-        ? 'linear-gradient(135deg, rgba(250,204,21,0.15), rgba(250,204,21,0.05))'
-        : 'rgba(255,255,255,0.03)',
-    color: active ? '#facc15' : 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontWeight: '700',
-    fontSize: '0.95rem',
-    textAlign: 'center',
-    boxShadow: active ? '0 0 20px rgba(250,204,21,0.2)' : 'none',
-    transition: 'all 0.3s ease',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '0.3rem'
-});
-
-// Sub-tabs — original yellow style matching site theme
-const subTabStyle = (active) => ({
-    padding: '10px 20px',
-    borderRadius: '10px',
-    border: 'none',
-    background: active ? '#facc15' : 'transparent',
-    color: active ? '#000' : 'var(--text-secondary)',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    transition: 'all 0.3s ease'
-});
-
-
 function MarketPulse() {
     const [activeSection, setActiveSection] = useState('screener');
     const [activeScreener, setActiveScreener] = useState('breakout');
+    const [activeHeatmapIndex, setActiveHeatmapIndex] = useState('Nifty 50');
+
+    const heatmapSources = [
+        { id: 'Nifty 50', label: 'Nifty 50' },
+        { id: 'Bank Nifty', label: 'Bank Nifty' },
+        { id: 'Fin Nifty', label: 'Fin Nifty' },
+        { id: 'Sensex', label: 'Sensex' }
+    ];
+
+    const menuItems = [
+        { id: 'screener', label: 'Stock Screener', icon: '🎯', sub: 'Intraday Edge' },
+        { id: 'heatmap', label: 'Sector Heatmap', icon: '🌡️', sub: 'Market Breadth' }
+    ];
 
     return (
-        <div className="container" style={{ padding: '100px 1rem 2rem', minHeight: '100vh' }}>
-            <header style={{ marginBottom: '2rem', textAlign: 'center' }}>
-                <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>
-                    Market <span className="premium-gradient-text">Pulse</span>
-                </h1>
-                <p style={{ color: 'var(--text-secondary)' }}>
-                    Sector Heatmap & Intraday Stock Screener
-                </p>
-            </header>
-
-            {/* Top-level section cards */}
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', maxWidth: '500px', margin: '0 auto 2rem' }}>
-                <button onClick={() => setActiveSection('screener')} style={sectionCardStyle(activeSection === 'screener')}>
-                    <span style={{ fontSize: '1.8rem' }}>📊</span>
-                    <span>Stock Screener</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: '400', opacity: 0.7 }}>Breakout Stocks</span>
-                </button>
-                <button onClick={() => setActiveSection('heatmap')} style={sectionCardStyle(activeSection === 'heatmap')}>
-                    <span style={{ fontSize: '1.8rem' }}>🗺️</span>
-                    <span>Sector Heatmap</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: '400', opacity: 0.7 }}>Market Overview</span>
-                </button>
+        <div className="admin-container" style={{ marginTop: '80px' }}>
+            {/* Sidebar */}
+            <div className="glass-card admin-sidebar">
+                <h3 style={{ marginBottom: '2rem', color: 'var(--accent-primary)', fontSize: '1.2rem' }}>Market Pulse</h3>
+                <ul>
+                    {menuItems.map((item) => (
+                        <li
+                            key={item.id}
+                            onClick={() => setActiveSection(item.id)}
+                            className={`market-sidebar-item ${activeSection === item.id ? 'active' : ''}`}
+                            style={{
+                                cursor: 'pointer',
+                                padding: '15px',
+                                borderRadius: '12px',
+                                transition: 'all 0.3s ease',
+                                marginBottom: '0.8rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px'
+                            }}
+                        >
+                            <span style={{ fontSize: '1.2rem' }}>{item.icon}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: '700', fontSize: '0.9rem' }}>{item.label}</span>
+                                <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>{item.sub}</span>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
             </div>
 
-            {/* Heatmap Section */}
-            {activeSection === 'heatmap' && (
-                <div className="glass-card" style={{ padding: '1rem', height: '80vh', overflow: 'hidden' }}>
-                    <StockHeatmap />
+            {/* Main Content */}
+            <div className="admin-content">
+                <div className="container" style={{ padding: '0 1rem 4rem', position: 'relative' }}>
+                    <div className="market-glow" style={{ opacity: activeSection === 'heatmap' ? 0.03 : 0.08 }}></div>
+
+                    <header style={{ marginBottom: '3rem', textAlign: 'left' }}>
+                        <h1 style={{ fontSize: 'clamp(2rem, 5vw, 2.8rem)', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
+                            {activeSection === 'screener' ? 'Stock ' : 'Sector '}
+                            <span className="premium-gradient-text">{activeSection === 'screener' ? 'Screener' : 'Heatmap'}</span>
+                        </h1>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
+                            {activeSection === 'screener'
+                                ? 'Institutional-grade intraday engine to spot high-probability setups.'
+                                : 'Visualizing market breadth and sector rotation in real-time.'}
+                        </p>
+                    </header>
+
+                    <div className="animate-fade">
+                        {activeSection === 'heatmap' ? (
+                            <div>
+                                <div style={{ marginBottom: '2.5rem' }}>
+                                    <div className="segmented-control" style={{ width: 'fit-content' }}>
+                                        {heatmapSources.map(source => (
+                                            <button
+                                                key={source.id}
+                                                className={activeHeatmapIndex === source.id ? 'active' : ''}
+                                                onClick={() => setActiveHeatmapIndex(source.id)}
+                                            >
+                                                {source.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="glass-card" style={{
+                                    padding: '1.5rem',
+                                    height: '75vh',
+                                    overflow: 'hidden',
+                                    border: '1px solid var(--glass-border)',
+                                    boxShadow: '0 20px 50px rgba(0,0,0,0.3)'
+                                }}>
+                                    <NSEHeatmap index={activeHeatmapIndex} />
+                                </div>
+                            </div>
+                        ) : (
+                            <div>
+                                {/* Screener Tabs */}
+                                <div style={{ marginBottom: '2.5rem' }}>
+                                    <div className="segmented-control">
+                                        <button
+                                            className={activeScreener === 'breakout' ? 'active' : ''}
+                                            onClick={() => setActiveScreener('breakout')}
+                                        >
+                                            Breakout Engine
+                                        </button>
+                                        <button
+                                            className={activeScreener === 'shortterm' ? 'active' : ''}
+                                            onClick={() => setActiveScreener('shortterm')}
+                                        >
+                                            Short-Term Momentum
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="glass-card" style={{
+                                    padding: '2.5rem 2rem',
+                                    minHeight: '500px',
+                                    background: 'rgba(255,255,255,0.01)',
+                                    border: '1px solid var(--glass-border)'
+                                }}>
+                                    {activeScreener === 'breakout' ? (
+                                        <>
+                                            <StockSection title="5 Mins Breakout" endpoint="5minbreakout" type="positive" />
+                                            <StockSection title="5 Mins Breakdown" endpoint="5minbreakdown" type="negative" />
+                                            <StockSection title="15 Mins Breakout" endpoint="15minbreakout" type="positive" />
+                                            <StockSection title="15 Mins Breakdown" endpoint="15minbreakdown" type="negative" />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <StockSection title="Hourly Gainers" endpoint="hourlygainers" type="positive" />
+                                            <StockSection title="Hourly Losers" endpoint="hourlylosers" type="negative" />
+                                            <StockSection title="Short Term Breakout (15 Min)" endpoint="shortbo" type="positive" />
+                                            <StockSection title="Short Term Breakdown (15 Min)" endpoint="shortbd" type="negative" />
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            )}
-
-            {/* Stock Screener Section */}
-            {activeSection === 'screener' && (
-                <>
-                    {/* Sub-tabs for screener */}
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
-                        <div className="glass-card" style={{ padding: '0.5rem', display: 'inline-flex', gap: '0.5rem' }}>
-                            <button onClick={() => setActiveScreener('breakout')} style={subTabStyle(activeScreener === 'breakout')}>
-                                Breakout Stocks (5/15 min)
-                            </button>
-                            <button onClick={() => setActiveScreener('shortterm')} style={subTabStyle(activeScreener === 'shortterm')}>
-                                Short Term Breakout Stocks
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="glass-card animate-fade" style={{ padding: '2rem', minHeight: '400px' }}>
-                        {activeScreener === 'breakout' && (
-                            <>
-                                <StockSection title="5 Mins Breakout" endpoint="5minbreakout" type="positive" />
-                                <StockSection title="5 Mins Breakdown" endpoint="5minbreakdown" type="negative" />
-                                <StockSection title="15 Mins Breakout" endpoint="15minbreakout" type="positive" />
-                                <StockSection title="15 Mins Breakdown" endpoint="15minbreakdown" type="negative" />
-                            </>
-                        )}
-                        {activeScreener === 'shortterm' && (
-                            <>
-                                <StockSection title="Hourly Gainers" endpoint="hourlygainers" type="positive" />
-                                <StockSection title="Hourly Losers" endpoint="hourlylosers" type="negative" />
-                                <StockSection title="Short Term Breakout (15 Min)" endpoint="shortbo" type="positive" />
-                                <StockSection title="Short Term Breakdown (15 Min)" endpoint="shortbd" type="negative" />
-                            </>
-                        )}
-                    </div>
-                </>
-            )}
+            </div>
         </div>
     );
 }

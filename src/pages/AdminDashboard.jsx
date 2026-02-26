@@ -108,7 +108,7 @@ function DashboardOverview() {
                 <StatCard title="Community Members" value="3,400" change="+8%" />
             </div>
 
-            <div className="charts-grid">
+            <div className="charts-grid" style={{ marginBottom: '2rem' }}>
 
                 {/* Sales & Profit Chart */}
                 <div className="glass-card chart-card" style={{ padding: '2rem' }}>
@@ -399,7 +399,7 @@ function ManageCourses() {
                     <button className="premium-btn" style={{ padding: '8px 20px' }} onClick={() => { setIsAdding(false); setEditCourse(null); }}>Back to List</button>
                 </div>
 
-                <div className="glass-card" style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+                <div className="glass-card" style={{ padding: '2rem', width: '100%', maxWidth: '600px', margin: '0 auto' }}>
                     <form onSubmit={handleSaveCourse} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                         {status.message && (
                             <div style={{
@@ -423,7 +423,7 @@ function ManageCourses() {
                             />
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="stat-grid" style={{ gap: '1rem', marginBottom: '1rem' }}>
                             <div>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Price (₹)</label>
                                 <input
@@ -445,6 +445,7 @@ function ManageCourses() {
                                 </select>
                             </div>
                         </div>
+
 
                         <div style={{ marginTop: '1rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -612,12 +613,12 @@ function ManageCommunity() {
                 <div className="glass-card" style={{ padding: '2rem' }}>
                     <h3>Update Live Mentorship Image</h3>
                     <input type="file" style={{ marginTop: '1rem', width: '100%' }} />
-                    <button className="premium-btn" style={{ marginTop: '1rem', padding: '10px 20px' }}>Upload</button>
+                    <button className="premium-btn" style={{ marginTop: '1rem', padding: '10px 20px', width: '100%' }}>Upload</button>
                 </div>
                 <div className="glass-card" style={{ padding: '2rem' }}>
                     <h3>Post Announcement</h3>
                     <textarea style={{ width: '100%', height: '100px', marginTop: '1rem', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#fff', padding: '10px' }} placeholder="Write your announcement..."></textarea>
-                    <button className="premium-btn" style={{ marginTop: '1rem', padding: '10px 20px' }}>Post</button>
+                    <button className="premium-btn" style={{ marginTop: '1rem', padding: '10px 20px', width: '100%' }}>Post</button>
                 </div>
             </div>
         </div>
@@ -827,7 +828,7 @@ function ManageUsers() {
                     />
                     <button
                         className="premium-btn"
-                        style={{ padding: '8px 20px' }}
+                        style={{ padding: '8px 20px', whiteSpace: 'nowrap' }}
                         onClick={() => setShowAddModal(true)}
                     >
                         + Add New User
@@ -953,8 +954,8 @@ function ManageUsers() {
 
             {/* Add User Modal */}
             {showAddModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-                    <div className="glass-card" style={{ padding: '2.5rem', maxWidth: '450px', width: '100%', position: 'relative' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, padding: '1rem' }}>
+                    <div className="glass-card" style={{ padding: '2rem 1.5rem', maxWidth: '450px', width: '100%', position: 'relative' }}>
                         <button onClick={() => setShowAddModal(false)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
                         <h3 style={{ marginBottom: '2rem', color: 'var(--accent-primary)', fontSize: '1.5rem' }}>Add New Student</h3>
 
@@ -998,8 +999,8 @@ function ManageUsers() {
 
             {/* Assign Course Modal */}
             {showAssignModal && selectedUser && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-                    <div className="glass-card" style={{ padding: '2.5rem', maxWidth: '450px', width: '100%', position: 'relative' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, padding: '1rem' }}>
+                    <div className="glass-card" style={{ padding: '2rem 1.5rem', maxWidth: '450px', width: '100%', position: 'relative' }}>
                         <button onClick={() => setShowAssignModal(false)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
                         <h3 style={{ marginBottom: '1rem', color: 'var(--accent-primary)', fontSize: '1.5rem' }}>Assign Course</h3>
                         <p style={{ marginBottom: '2rem', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', textAlign: 'center' }}>
@@ -1016,8 +1017,11 @@ function ManageUsers() {
                                     style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', color: '#fff' }}
                                 >
                                     <option value="">-- Select from library --</option>
-                                    {courses.map(c => <option key={c.courseId} value={c.courseId} style={{ background: '#000' }}>{c.name}</option>)}
+                                    {courses
+                                        .filter(c => !selectedUser.courses?.some(uc => uc.courseId === c.courseId))
+                                        .map(c => <option key={c.courseId} value={c.courseId} style={{ background: '#000' }}>{c.name}</option>)}
                                 </select>
+
                             </div>
 
                             <div>
